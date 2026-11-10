@@ -28,7 +28,13 @@ export async function uploadDocument(file, owner) {
 
 export async function downloadDocument(document, owner) {
   const response = await request(`/documents/${encodeURIComponent(document.id)}/download`, owner);
-  const url = URL.createObjectURL(await response.blob());
+  let blob;
+  try {
+    blob = await response.blob();
+  } catch {
+    throw new Error('Não foi possível concluir o download. Tente novamente.');
+  }
+  const url = URL.createObjectURL(blob);
   const link = window.document.createElement('a');
   link.href = url;
   link.download = document.originalName;
