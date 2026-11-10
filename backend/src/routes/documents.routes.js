@@ -16,7 +16,7 @@ function createDocumentRoutes(controller, config) {
         callback(null, randomUUID());
       },
     }),
-    limits: { fileSize: config.maxFileSize, files: 1, fields: 0, parts: 2 },
+    limits: { fileSize: config.maxFileSize + 1, files: 1, fields: 0, parts: 2 },
   });
 
   router.use((req, res, next) => {

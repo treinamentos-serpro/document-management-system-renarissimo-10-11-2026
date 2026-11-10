@@ -98,6 +98,73 @@ test('arquivos com o mesmo nome não colidem e listagem fica em ordem decrescent
   assert.deepStrictEqual(documents.map((document) => document.id), [second.id, first.id]);
 });
 
+test('POST /upload aceita o limite exato e retorna erro estruturado acima dele', async (context) => {
+  const { request, storageDirectory } = await setup(context, 8);
+  const accepted = await request('/upload', { method: 'POST', body: uploadBody('12345678', '../limite.txt') });
+  assert.strictEqual(accepted.status, 201);
+  const document = await accepted.json();
+  assert.strictEqual(document.size, 8);
+  assert.strictEqual(document.originalName, 'limite.txt');
+  const [storageName] = await readdir(storageDirectory);
+  assert.match(storageName, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  const rejected = await request('/upload', { method: 'POST', body: uploadBody('123456789') });
+  assert.strictEqual(rejected.status, 413);
+  assert.deepStrictEqual(await rejected.json(), {
+    error: { code: 'LIMIT_FILE_SIZE', message: 'O arquivo excede o tamanho permitido.' },
+  });
+  assert.deepStrictEqual(await readdir(storageDirectory), [storageName]);
+  assert.deepStrictEqual(await (await request('/documents')).json(), [document]);
+});
+
+test('GET /documents separa documentos de dois usuários e retorna apenas metadados públicos', async (context) => {
+  const { request } = await setup(context);
+  const aliceUpload = await request('/upload', { method: 'POST', body: uploadBody('alice', 'alice.txt') });
+  const bobUpload = await request('/upload', { method: 'POST', body: uploadBody('bob', 'bob.txt') }, 'bob');
+  assert.strictEqual(aliceUpload.status, 201);
+  assert.strictEqual(bobUpload.status, 201);
+  const aliceDocument = await aliceUpload.json();
+  const bobDocument = await bobUpload.json();
+  for (const [owner, expected] of [[' alice ', aliceDocument], ['bob', bobDocument]]) {
+    const response = await request('/documents', {}, owner);
+    assert.strictEqual(response.status, 200);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    const documents = await response.json();
+    assert.deepStrictEqual(documents, [expected]);
+    assert.deepStrictEqual(Object.keys(documents[0]).sort(), ['id', 'originalName', 'owner', 'size', 'uploadedAt']);
+  }
+  const unidentified = await request('/documents', {}, null);
+  assert.strictEqual(unidentified.status, 400);
+  assert.strictEqual((await unidentified.json()).error.code, 'USER_REQUIRED');
+});
+
+test('GET /documents/:id/download distingue arquivos de mesmo nome e protege documentos', async (context) => {
+  const { request } = await setup(context);
+  const documents = [];
+  for (const content of ['primeiro', 'segundo']) {
+    const uploaded = await request('/upload', { method: 'POST', body: uploadBody(content, 'igual.txt') });
+    assert.strictEqual(uploaded.status, 201);
+    documents.push({ metadata: await uploaded.json(), content });
+  }
+  for (const { metadata, content } of documents) {
+    const response = await request(`/documents/${metadata.id}/download`);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(response.headers.get('content-disposition'), /attachment;.*igual\.txt/);
+    assert.strictEqual(await response.text(), content);
+  }
+  const route = `/documents/${documents[0].metadata.id}/download`;
+  for (const [downloadRoute, owner] of [[route, 'bob'], ['/documents/inexistente/download', 'alice'], ['/documents/..%2Ffora.txt/download', 'alice']]) {
+    const response = await request(downloadRoute, {}, owner);
+    assert.strictEqual(response.status, 404);
+    assert.deepStrictEqual(await response.json(), {
+      error: { code: 'DOCUMENT_NOT_FOUND', message: 'Documento não encontrado.' },
+    });
+  }
+  const unidentified = await request(route, {}, null);
+  assert.strictEqual(unidentified.status, 400);
+  assert.strictEqual((await unidentified.json()).error.code, 'USER_REQUIRED');
+});
+
 test('falha no registro remove o arquivo recém-gravado', async () => {
   let removed;
   const service = createDocumentService({
