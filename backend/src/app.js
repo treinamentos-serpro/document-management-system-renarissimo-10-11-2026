@@ -1,10 +1,10 @@
 const express = require('express');
 
 const { loadConfig } = require('./config');
-const { createDocumentRepository } = require('./repositories/documentRepository');
-const { createDocumentService } = require('./services/documentService');
-const { createDocumentController } = require('./controllers/documentController');
-const { createDocumentRoutes } = require('./routes/documentRoutes');
+const { createDocumentRepository } = require('./repositories/documents.repository');
+const { createDocumentService } = require('./services/documents.service');
+const { createDocumentController } = require('./controllers/documents.controller');
+const { createDocumentRoutes } = require('./routes/documents.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 function createApp(options = {}) {

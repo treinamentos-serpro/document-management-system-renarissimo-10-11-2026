@@ -141,13 +141,13 @@ Falhas internas usam mensagem genérica ao cliente e detalhes apenas no servidor
 ### Backend
 
 - `config/index.js`: validar ambiente e resolver diretório local fixo.
-- `routes/documentRoutes.js`: rotas, identificação anterior à gravação e multer
+- `routes/documents.routes.js`: rotas, identificação anterior à gravação e multer
   com limite configurado, nomes físicos UUID e tratamento de nomes UTF-8.
-- `controllers/documentController.js`: adaptar HTTP, chamar services e responder
+- `controllers/documents.controller.js`: adaptar HTTP, chamar services e responder
   com JSON ou download, sem regras de persistência.
-- `services/documentService.js`: criação, normalização de nomes, respostas públicas,
+- `services/documents.service.js`: criação, normalização de nomes, respostas públicas,
   listagem por dono, autorização de download e compensação de falhas.
-- `repositories/documentRepository.js`: encapsular `Map` e filesystem, criar
+- `repositories/documents.repository.js`: encapsular `Map` e filesystem, criar
   diretório e validar nomes físicos antes de resolver caminhos.
 - `middlewares/errorHandler.js`: centralizar conversão de erros para HTTP.
 - `app.js`: compor dependências e exportar app e fábrica para testes isolados.

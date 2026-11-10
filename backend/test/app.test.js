@@ -6,8 +6,8 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { once } = require('node:events');
 const { loadConfig } = require('../src/config');
-const { createDocumentService } = require('../src/services/documentService');
-const { createDocumentRepository } = require('../src/repositories/documentRepository');
+const { createDocumentService } = require('../src/services/documents.service');
+const { createDocumentRepository } = require('../src/repositories/documents.repository');
 
 test('o app backend é exportado', () => {
   assert.ok(app, 'o app deve estar definido');
