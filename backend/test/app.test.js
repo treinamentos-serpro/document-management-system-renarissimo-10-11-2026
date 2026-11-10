@@ -8,6 +8,7 @@ const { once } = require('node:events');
 const { loadConfig } = require('../src/config');
 const { createDocumentService } = require('../src/services/documents.service');
 const { createDocumentRepository } = require('../src/repositories/documents.repository');
+const { createDocumentMetadata, toPublicDocument } = require('../src/services/documentMetadata');
 
 test('o app backend é exportado', () => {
   assert.ok(app, 'o app deve estar definido');
@@ -105,6 +106,58 @@ test('falha no registro remove o arquivo recém-gravado', async () => {
   });
   await assert.rejects(service.create({ size: 3, originalname: 'teste.txt', filename: 'interno' }, 'alice'), /falha simulada/);
   assert.strictEqual(removed, 'interno');
+});
+
+test('metadados normalizam nomes e expõem somente os campos públicos previstos', () => {
+  const document = createDocumentMetadata({ size: 3, originalname: '..\\pasta/relatório\u0000.txt', filename: 'interno' }, 'alice');
+  assert.strictEqual(document.originalName, 'relatório.txt');
+  assert.strictEqual(document.storageName, 'interno');
+  assert.strictEqual(document.owner, 'alice');
+  assert.match(document.id, /^[0-9a-f-]{36}$/);
+  assert.ok(Number.isFinite(Date.parse(document.uploadedAt)));
+  assert.strictEqual(createDocumentMetadata({ size: 1, originalname: '\u0000', filename: 'outro' }, 'alice').originalName, 'documento');
+  const metadata = toPublicDocument({ ...document, internalNote: 'privado' });
+  assert.deepStrictEqual(Object.keys(metadata).sort(), ['id', 'originalName', 'owner', 'size', 'uploadedAt']);
+  assert.strictEqual(document.storageName, 'interno');
+});
+
+test('validação do serviço preserva códigos e remove somente uploads existentes', async () => {
+  const removed = [];
+  const service = createDocumentService({
+    insert() { assert.fail('não deve persistir upload inválido'); },
+    async removeFile(storageName) { removed.push(storageName); },
+  });
+  await assert.rejects(service.create(undefined, 'alice'), { code: 'FILE_REQUIRED', message: 'Selecione um arquivo.' });
+  assert.deepStrictEqual(removed, []);
+  await assert.rejects(service.create({ size: 0, filename: 'vazio' }, 'alice'), { code: 'EMPTY_FILE', message: 'O arquivo não pode estar vazio.' });
+  assert.deepStrictEqual(removed, ['vazio']);
+});
+
+test('falha na limpeza não substitui o erro original de persistência', async (context) => {
+  const originalError = new Error('falha de persistência');
+  const cleanupError = new Error('falha na limpeza');
+  const logger = context.mock.method(console, 'error', () => {});
+  const service = createDocumentService({
+    async insert() { throw originalError; },
+    async removeFile() { throw cleanupError; },
+  });
+  await assert.rejects(service.create({ size: 3, originalname: 'teste.txt', filename: 'interno' }, 'alice'), (error) => error === originalError);
+  assert.strictEqual(logger.mock.callCount(), 1);
+  assert.strictEqual(logger.mock.calls[0].arguments[1], cleanupError);
+});
+
+test('listagem filtra campos internos sem modificar documentos do repositório', async () => {
+  const document = { id: '123', originalName: 'teste.txt', size: 3, uploadedAt: '2026-01-01T00:00:00.000Z', owner: 'alice', storageName: 'interno', internalNote: 'privado' };
+  const service = createDocumentService({
+    async listByOwner(owner) {
+      assert.strictEqual(owner, 'alice');
+      return [document];
+    },
+  });
+  const [metadata] = await service.list('alice');
+  assert.deepStrictEqual(Object.keys(metadata).sort(), ['id', 'originalName', 'owner', 'size', 'uploadedAt']);
+  assert.strictEqual(document.storageName, 'interno');
+  assert.strictEqual(document.internalNote, 'privado');
 });
 
 test('configuração rejeita limites e portas inválidos', () => {

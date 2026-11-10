@@ -1,45 +1,48 @@
-const { randomUUID } = require('node:crypto');
-const path = require('node:path');
+const { createDocumentMetadata, toPublicDocument } = require('./documentMetadata');
 
-function publicDocument({ storageName, ...metadata }) {
-  return metadata;
+const errorMessages = {
+  FILE_REQUIRED: 'Selecione um arquivo.',
+  EMPTY_FILE: 'O arquivo não pode estar vazio.',
+  DOCUMENT_NOT_FOUND: 'Documento não encontrado.',
+};
+
+function createServiceError(code) {
+  return Object.assign(new Error(errorMessages[code]), { code });
+}
+
+function validateUpload(file) {
+  if (!file) throw createServiceError('FILE_REQUIRED');
+  if (file.size === 0) throw createServiceError('EMPTY_FILE');
 }
 
 function createDocumentService(repository) {
+  async function removeRejectedUpload(storageName) {
+    try {
+      await repository.removeFile(storageName);
+    } catch (cleanupError) {
+      console.error('Falha ao remover arquivo de upload rejeitado.', cleanupError);
+    }
+  }
+
   return {
     async create(file, owner) {
-      if (!file) throw Object.assign(new Error('Selecione um arquivo.'), { code: 'FILE_REQUIRED' });
       try {
-        if (file.size === 0) {
-          throw Object.assign(new Error('O arquivo não pode estar vazio.'), { code: 'EMPTY_FILE' });
-        }
-        const document = {
-          id: randomUUID(),
-          originalName: path.posix.basename(file.originalname.replace(/\\/g, '/'))
-            .replace(/[\x00-\x1f\x7f]/g, '') || 'documento',
-          size: file.size,
-          uploadedAt: new Date().toISOString(),
-          owner,
-          storageName: file.filename,
-        };
+        validateUpload(file);
+        const document = createDocumentMetadata(file, owner);
         await repository.insert(document);
-        return publicDocument(document);
+        return toPublicDocument(document);
       } catch (error) {
-        try {
-          await repository.removeFile(file.filename);
-        } catch (cleanupError) {
-          console.error('Falha ao remover arquivo de upload rejeitado.', cleanupError);
-        }
+        if (file) await removeRejectedUpload(file.filename);
         throw error;
       }
     },
     async list(owner) {
-      return (await repository.listByOwner(owner)).map(publicDocument);
+      return (await repository.listByOwner(owner)).map(toPublicDocument);
     },
     async download(id, owner) {
       const document = await repository.findById(id);
       if (!document || document.owner !== owner || !(await repository.fileExists(document.storageName))) {
-        throw Object.assign(new Error('Documento não encontrado.'), { code: 'DOCUMENT_NOT_FOUND' });
+        throw createServiceError('DOCUMENT_NOT_FOUND');
       }
       return { filePath: repository.getFilePath(document.storageName), originalName: document.originalName };
     },
